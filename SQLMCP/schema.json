@@ -1,0 +1,15 @@
+{
+  "Employees": [
+    "EmployeeID",
+    "FirstName",
+    "LastName",
+    "Department",
+    "HireDate",
+    "Salary"
+  ],
+  "Attendance": [
+    "EmployeeID",
+    "AttendanceDate",
+    "Status"
+  ]
+}
