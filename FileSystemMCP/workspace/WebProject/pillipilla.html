@@ -1,0 +1,699 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Chrome Dino Game</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            user-select: none;
+        }
+
+        body {
+            background: #2a2a2a;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-family: 'Courier New', monospace;
+        }
+
+        .game-wrapper {
+            background: #f7f7f7;
+            border-radius: 20px;
+            padding: 30px 40px 40px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        canvas {
+            display: block;
+            background: #ffffff;
+            border-radius: 12px;
+            box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.06);
+            width: 800px;
+            height: 300px;
+            cursor: pointer;
+            border: 2px solid #e0e0e0;
+        }
+
+        .info {
+            width: 100%;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 16px;
+            padding: 0 6px;
+        }
+
+        .info .hint {
+            color: #888;
+            font-size: 15px;
+            letter-spacing: 0.3px;
+        }
+
+        .info .hint kbd {
+            background: #eee;
+            padding: 4px 12px;
+            border-radius: 6px;
+            font-weight: bold;
+            color: #333;
+            border: 1px solid #ccc;
+            font-size: 14px;
+        }
+
+        .high-score {
+            color: #555;
+            font-size: 16px;
+            font-weight: bold;
+            background: #f0f0f0;
+            padding: 6px 18px;
+            border-radius: 30px;
+            border: 1px solid #ddd;
+        }
+
+        .high-score span {
+            color: #222;
+            font-weight: 700;
+        }
+
+        @media (max-width: 860px) {
+            .game-wrapper {
+                padding: 16px 16px 24px;
+                border-radius: 14px;
+                margin: 10px;
+            }
+            canvas {
+                width: 100%;
+                height: auto;
+                aspect-ratio: 800 / 300;
+            }
+            .info {
+                flex-direction: column;
+                gap: 10px;
+                align-items: center;
+            }
+            .info .hint {
+                font-size: 13px;
+            }
+            .high-score {
+                font-size: 14px;
+                padding: 4px 14px;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="game-wrapper">
+        <canvas id="gameCanvas" width="800" height="300"></canvas>
+        <div class="info">
+            <div class="hint">
+                <kbd>Space</kbd> or <kbd>↑</kbd> to jump &nbsp;·&nbsp; click / tap too
+            </div>
+            <div class="high-score">🏆 BEST <span id="highScoreDisplay">0</span></div>
+        </div>
+    </div>
+
+    <script>
+        // ─── Canvas Setup ───────────────────────────────────────────────
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const highScoreSpan = document.getElementById('highScoreDisplay');
+
+        const W = 800,
+            H = 300;
+
+        // ─── Game Constants ─────────────────────────────────────────────
+        const GROUND_Y = 250;
+        const GRAVITY = 0.6;
+        const JUMP_FORCE = -13;
+        const INITIAL_SPEED = 5;
+        const MAX_SPEED = 16;
+        const SPEED_INCREMENT = 0.001;
+
+        // ─── Game State ──────────────────────────────────────────────────
+        let gameSpeed = INITIAL_SPEED;
+        let score = 0;
+        let highScore = parseInt(localStorage.getItem('dinoHighScore')) || 0;
+        let gameOver = false;
+        let frame = 0;
+
+        // ─── Dino ────────────────────────────────────────────────────────
+        const dino = {
+            x: 60,
+            y: GROUND_Y - 44,
+            width: 40,
+            height: 44,
+            vy: 0,
+            isJumping: false,
+            legFrame: 0,
+            legTimer: 0,
+
+            reset() {
+                this.y = GROUND_Y - this.height;
+                this.vy = 0;
+                this.isJumping = false;
+                this.legFrame = 0;
+                this.legTimer = 0;
+            },
+
+            jump() {
+                if (!this.isJumping) {
+                    this.vy = JUMP_FORCE;
+                    this.isJumping = true;
+                }
+            },
+
+            update() {
+                // gravity
+                this.vy += GRAVITY;
+                this.y += this.vy;
+
+                // ground collision
+                if (this.y >= GROUND_Y - this.height) {
+                    this.y = GROUND_Y - this.height;
+                    this.vy = 0;
+                    this.isJumping = false;
+                }
+
+                // leg animation when running
+                if (!this.isJumping && !gameOver) {
+                    this.legTimer += gameSpeed * 0.04;
+                    if (this.legTimer > 1) {
+                        this.legTimer = 0;
+                        this.legFrame = (this.legFrame + 1) % 2;
+                    }
+                } else {
+                    this.legFrame = 0;
+                }
+            },
+
+            draw() {
+                const x = this.x;
+                const y = this.y;
+
+                // ── Shadow ──
+                ctx.fillStyle = 'rgba(0,0,0,0.06)';
+                ctx.beginPath();
+                ctx.ellipse(x + 20, GROUND_Y + 2, 24, 6, 0, 0, Math.PI * 2);
+                ctx.fill();
+
+                // ── Body ──
+                ctx.fillStyle = '#3a3a3a';
+                // torso
+                ctx.fillRect(x + 8, y + 8, 22, 22);
+                // head
+                ctx.fillRect(x + 22, y - 2, 18, 16);
+                // neck
+                ctx.fillRect(x + 20, y + 4, 8, 8);
+                // snout
+                ctx.fillRect(x + 34, y + 2, 8, 8);
+                // eye
+                ctx.fillStyle = 'white';
+                ctx.fillRect(x + 32, y + 2, 5, 5);
+                ctx.fillStyle = '#222';
+                ctx.fillRect(x + 34, y + 3, 3, 3);
+                // pupil
+                ctx.fillStyle = 'white';
+                ctx.fillRect(x + 35, y + 3, 1.5, 1.5);
+
+                // ── Mouth ──
+                ctx.fillStyle = '#3a3a3a';
+                ctx.fillRect(x + 38, y + 8, 4, 2);
+
+                // ── Arms ──
+                ctx.fillStyle = '#3a3a3a';
+                ctx.fillRect(x + 6, y + 16, 4, 8);
+                ctx.fillRect(x + 28, y + 16, 4, 8);
+
+                // ── Legs ──
+                ctx.fillStyle = '#2e2e2e';
+                if (this.isJumping || gameOver) {
+                    // stationary legs
+                    ctx.fillRect(x + 6, y + 30, 8, 14);
+                    ctx.fillRect(x + 24, y + 30, 8, 14);
+                    // feet
+                    ctx.fillStyle = '#222';
+                    ctx.fillRect(x + 4, y + 42, 12, 4);
+                    ctx.fillRect(x + 22, y + 42, 12, 4);
+                } else {
+                    // running legs
+                    if (this.legFrame === 0) {
+                        ctx.fillRect(x + 6, y + 30, 8, 14);
+                        ctx.fillRect(x + 24, y + 30, 8, 14);
+                        ctx.fillStyle = '#222';
+                        ctx.fillRect(x + 4, y + 42, 12, 4);
+                        ctx.fillRect(x + 22, y + 42, 12, 4);
+                    } else {
+                        // leg offset for running
+                        ctx.fillRect(x + 4, y + 32, 8, 12);
+                        ctx.fillRect(x + 26, y + 28, 8, 16);
+                        ctx.fillStyle = '#222';
+                        ctx.fillRect(x + 2, y + 42, 12, 4);
+                        ctx.fillRect(x + 24, y + 42, 12, 4);
+                    }
+                }
+
+                // ── Tail ──
+                ctx.fillStyle = '#3a3a3a';
+                ctx.fillRect(x - 2, y + 14, 6, 6);
+                ctx.fillRect(x - 6, y + 16, 6, 4);
+
+                // ── Belly highlight ──
+                ctx.fillStyle = 'rgba(255,255,255,0.07)';
+                ctx.fillRect(x + 12, y + 12, 12, 12);
+
+                // ── Head detail ──
+                ctx.fillStyle = '#3a3a3a';
+                // brow
+                ctx.fillRect(x + 30, y - 1, 6, 2);
+                // nostril
+                ctx.fillStyle = '#222';
+                ctx.fillRect(x + 40, y + 4, 2, 2);
+            },
+
+            getHitbox() {
+                return {
+                    x: this.x + 4,
+                    y: this.y + 4,
+                    w: this.width - 8,
+                    h: this.height - 6
+                };
+            }
+        };
+
+        // ─── Obstacles ──────────────────────────────────────────────────
+        let obstacles = [];
+        let spawnTimer = 0;
+        let minSpawnGap = 80;
+        let maxSpawnGap = 140;
+
+        class Cactus {
+            constructor(x, height) {
+                this.x = x;
+                this.height = height || 26 + Math.random() * 20;
+                this.width = 16 + Math.random() * 10;
+                this.y = GROUND_Y - this.height;
+                this.type = Math.floor(Math.random() * 3); // 0,1,2 for variation
+            }
+
+            update() {
+                this.x -= gameSpeed;
+            }
+
+            draw() {
+                const x = this.x;
+                const y = this.y;
+
+                // shadow
+                ctx.fillStyle = 'rgba(0,0,0,0.05)';
+                ctx.beginPath();
+                ctx.ellipse(x + this.width / 2, GROUND_Y + 2, this.width / 2 + 4, 5, 0, 0, Math.PI * 2);
+                ctx.fill();
+
+                // main body
+                const grad = ctx.createLinearGradient(x, y, x + this.width, y);
+                grad.addColorStop(0, '#3d7a3d');
+                grad.addColorStop(0.5, '#4c8c4c');
+                grad.addColorStop(1, '#3d7a3d');
+                ctx.fillStyle = grad;
+
+                // stem
+                const w = this.width;
+                const h = this.height;
+                ctx.fillRect(x, y + 4, w, h - 4);
+
+                // rounded top
+                ctx.beginPath();
+                ctx.ellipse(x + w / 2, y + 4, w / 2, 6, 0, 0, Math.PI * 2);
+                ctx.fill();
+
+                // branches based on type
+                ctx.fillStyle = '#3d7a3d';
+                if (this.type === 0) {
+                    // left branch
+                    ctx.fillRect(x - 4, y + 8, 6, 12);
+                    ctx.beginPath();
+                    ctx.ellipse(x - 4, y + 8, 6, 5, 0, 0, Math.PI * 2);
+                    ctx.fill();
+                    // right branch
+                    ctx.fillRect(x + w - 2, y + 14, 6, 10);
+                    ctx.beginPath();
+                    ctx.ellipse(x + w - 2, y + 14, 6, 5, 0, 0, Math.PI * 2);
+                    ctx.fill();
+                } else if (this.type === 1) {
+                    // top branches
+                    ctx.fillRect(x - 2, y - 2, 4, 8);
+                    ctx.fillRect(x + w - 2, y - 2, 4, 8);
+                    ctx.beginPath();
+                    ctx.ellipse(x - 2, y - 2, 4, 4, 0, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.beginPath();
+                    ctx.ellipse(x + w - 2, y - 2, 4, 4, 0, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+
+                // spines / details
+                ctx.fillStyle = '#2d6a2d';
+                for (let i = 0; i < 3; i++) {
+                    const sx = x + 3 + i * (w / 3);
+                    const sy = y + 8 + i * 6;
+                    ctx.fillRect(sx, sy, 2, 4);
+                    ctx.fillRect(sx + w - 5, sy, 2, 4);
+                }
+
+                // highlight
+                ctx.fillStyle = 'rgba(255,255,255,0.08)';
+                ctx.fillRect(x + 3, y + 6, 3, h - 12);
+            }
+
+            getHitbox() {
+                const shrink = 3;
+                return {
+                    x: this.x + shrink,
+                    y: this.y + shrink + 2,
+                    w: this.width - shrink * 2,
+                    h: this.height - shrink * 2 - 2
+                };
+            }
+        }
+
+        // ─── Clouds ──────────────────────────────────────────────────────
+        let clouds = [];
+
+        function initClouds() {
+            clouds = [];
+            for (let i = 0; i < 4; i++) {
+                clouds.push({
+                    x: 100 + i * 220 + Math.random() * 80,
+                    y: 20 + Math.random() * 50,
+                    w: 50 + Math.random() * 40,
+                    speed: 0.3 + Math.random() * 0.3
+                });
+            }
+        }
+        initClouds();
+
+        function updateClouds() {
+            for (const c of clouds) {
+                c.x -= c.speed * 0.5;
+                if (c.x + c.w < -20) {
+                    c.x = W + 20 + Math.random() * 100;
+                    c.y = 15 + Math.random() * 55;
+                    c.w = 45 + Math.random() * 45;
+                }
+            }
+        }
+
+        function drawClouds() {
+            for (const c of clouds) {
+                ctx.fillStyle = 'rgba(200,200,210,0.35)';
+                const r = c.w * 0.3;
+                ctx.beginPath();
+                ctx.ellipse(c.x, c.y, c.w * 0.5, r, 0, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.beginPath();
+                ctx.ellipse(c.x - c.w * 0.25, c.y + r * 0.2, c.w * 0.35, r * 0.8, 0, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.beginPath();
+                ctx.ellipse(c.x + c.w * 0.25, c.y + r * 0.1, c.w * 0.3, r * 0.7, 0, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.beginPath();
+                ctx.ellipse(c.x - c.w * 0.1, c.y - r * 0.2, c.w * 0.25, r * 0.6, 0, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+
+        // ─── Ground ──────────────────────────────────────────────────────
+        let groundOffset = 0;
+
+        function drawGround() {
+            // Main ground line
+            ctx.fillStyle = '#d0d0d0';
+            ctx.fillRect(0, GROUND_Y, W, 2);
+
+            // Ground texture - small dots
+            ctx.fillStyle = '#e8e8e8';
+            for (let i = 0; i < 40; i++) {
+                const x = (i * 22 + groundOffset) % W;
+                const y = GROUND_Y + 6 + (i % 3) * 4;
+                ctx.fillRect(x, y, 2, 2);
+            }
+
+            // Scattered tiny pebbles
+            ctx.fillStyle = '#dcdcdc';
+            for (let i = 0; i < 12; i++) {
+                const x = (i * 67 + groundOffset * 0.7 + 13) % W;
+                const y = GROUND_Y + 8 + (i % 4) * 3;
+                ctx.fillRect(x, y, 3, 2);
+            }
+
+            // Subtle grass tufts
+            ctx.fillStyle = '#d4e8d4';
+            for (let i = 0; i < 18; i++) {
+                const x = (i * 47 + groundOffset * 0.9 + 7) % W;
+                ctx.fillRect(x, GROUND_Y - 1, 2, 4);
+                ctx.fillRect(x + 4, GROUND_Y - 1, 2, 3);
+            }
+
+            groundOffset -= gameSpeed * 0.6;
+            if (groundOffset < -40) groundOffset += 40;
+        }
+
+        // ─── Collision Detection ──────────────────────────────────────
+        function rectCollide(a, b) {
+            return a.x < b.x + b.w &&
+                a.x + a.w > b.x &&
+                a.y < b.y + b.h &&
+                a.y + a.h > b.y;
+        }
+
+        // ─── Score ──────────────────────────────────────────────────────
+        function updateScore() {
+            if (!gameOver) {
+                score += Math.floor(gameSpeed * 0.2) + 1;
+            }
+        }
+
+        function drawScore() {
+            ctx.fillStyle = '#555';
+            ctx.font = 'bold 20px "Courier New", monospace';
+            ctx.textAlign = 'right';
+            ctx.textBaseline = 'top';
+
+            const scoreStr = String(score).padStart(5, '0');
+            ctx.fillText(scoreStr, W - 20, 18);
+
+            // High score indicator
+            if (highScore > 0) {
+                ctx.fillStyle = '#aaa';
+                ctx.font = '14px "Courier New", monospace';
+                ctx.fillText('HI ' + String(highScore).padStart(5, '0'), W - 130, 20);
+            }
+        }
+
+        // ─── Game Over / Restart ──────────────────────────────────────
+        function showGameOver() {
+            // overlay
+            ctx.fillStyle = 'rgba(255,255,255,0.7)';
+            ctx.fillRect(0, 0, W, H);
+
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+
+            // GAME OVER
+            ctx.fillStyle = '#333';
+            ctx.font = 'bold 42px "Courier New", monospace';
+            ctx.fillText('GAME OVER', W / 2, H / 2 - 30);
+
+            // Score
+            ctx.fillStyle = '#666';
+            ctx.font = '20px "Courier New", monospace';
+            ctx.fillText('Score: ' + score, W / 2, H / 2 + 28);
+
+            // Restart hint
+            ctx.fillStyle = '#999';
+            ctx.font = '16px "Courier New", monospace';
+            ctx.fillText('Press Space or Click to Restart', W / 2, H / 2 + 72);
+
+            // High score
+            if (highScore > 0) {
+                ctx.fillStyle = '#888';
+                ctx.font = '18px "Courier New", monospace';
+                ctx.fillText('Best: ' + highScore, W / 2, H / 2 + 110);
+            }
+        }
+
+        // ─── Reset Game ──────────────────────────────────────────────────
+        function resetGame() {
+            gameSpeed = INITIAL_SPEED;
+            score = 0;
+            gameOver = false;
+            frame = 0;
+            obstacles = [];
+            spawnTimer = 0;
+            dino.reset();
+            minSpawnGap = 80;
+            maxSpawnGap = 140;
+            groundOffset = 0;
+            initClouds();
+            document.getElementById('highScoreDisplay').textContent = highScore;
+        }
+
+        // ─── Spawning ──────────────────────────────────────────────────
+        function spawnObstacle() {
+            const heights = [28, 34, 40, 26, 32, 38];
+            const h = heights[Math.floor(Math.random() * heights.length)];
+            const cactus = new Cactus(W + 20, h);
+            obstacles.push(cactus);
+        }
+
+        // ─── Game Loop ──────────────────────────────────────────────────
+        function update() {
+            if (gameOver) return;
+
+            frame++;
+
+            // speed increase
+            if (gameSpeed < MAX_SPEED) {
+                gameSpeed += SPEED_INCREMENT;
+            }
+
+            // update dino
+            dino.update();
+
+            // spawn obstacles
+            spawnTimer--;
+            if (spawnTimer <= 0) {
+                spawnObstacle();
+                const gap = minSpawnGap + Math.random() * (maxSpawnGap - minSpawnGap);
+                spawnTimer = Math.max(50, gap - gameSpeed * 2);
+            }
+
+            // update obstacles
+            for (let i = obstacles.length - 1; i >= 0; i--) {
+                const obs = obstacles[i];
+                obs.update();
+
+                // remove off screen
+                if (obs.x + obs.width < -20) {
+                    obstacles.splice(i, 1);
+                    continue;
+                }
+
+                // collision
+                const dBox = dino.getHitbox();
+                const oBox = obs.getHitbox();
+                if (rectCollide(dBox, oBox)) {
+                    gameOver = true;
+                    if (score > highScore) {
+                        highScore = score;
+                        localStorage.setItem('dinoHighScore', String(highScore));
+                        document.getElementById('highScoreDisplay').textContent = highScore;
+                    }
+                }
+            }
+
+            // update clouds
+            updateClouds();
+
+            // update score
+            updateScore();
+
+            // adjust spawn difficulty
+            if (gameSpeed > 8) {
+                minSpawnGap = Math.max(40, 80 - gameSpeed * 2);
+                maxSpawnGap = Math.max(70, 140 - gameSpeed * 2);
+            }
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, W, H);
+
+            // ── Sky gradient ──
+            const skyGrad = ctx.createLinearGradient(0, 0, 0, GROUND_Y);
+            skyGrad.addColorStop(0, '#f0f4fa');
+            skyGrad.addColorStop(1, '#ffffff');
+            ctx.fillStyle = skyGrad;
+            ctx.fillRect(0, 0, W, GROUND_Y);
+
+            // ── Clouds ──
+            drawClouds();
+
+            // ── Ground ──
+            drawGround();
+
+            // ── Obstacles ──
+            for (const obs of obstacles) {
+                obs.draw();
+            }
+
+            // ── Dino ──
+            dino.draw();
+
+            // ── Score ──
+            drawScore();
+
+            // ── Game Over overlay ──
+            if (gameOver) {
+                showGameOver();
+            }
+
+            // ── FPS counter (tiny) ──
+            // ctx.fillStyle = '#ddd';
+            // ctx.font = '11px monospace';
+            // ctx.textAlign = 'left';
+            // ctx.fillText('v1.0', 10, 12);
+        }
+
+        function gameLoop() {
+            update();
+            draw();
+            requestAnimationFrame(gameLoop);
+        }
+
+        // ─── Input Handling ─────────────────────────────────────────────
+        function handleJump(e) {
+            if (e) e.preventDefault();
+
+            if (gameOver) {
+                resetGame();
+                return;
+            }
+
+            dino.jump();
+        }
+
+        document.addEventListener('keydown', (e) => {
+            if (e.key === ' ' || e.key === 'Space' || e.key === 'ArrowUp') {
+                e.preventDefault();
+                handleJump(e);
+            }
+        });
+
+        canvas.addEventListener('click', (e) => {
+            e.preventDefault();
+            handleJump(e);
+        });
+
+        canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            handleJump(e);
+        }, { passive: false });
+
+        // ─── Init ────────────────────────────────────────────────────────
+        resetGame();
+        highScoreSpan.textContent = highScore;
+
+        // Start the loop
+        gameLoop();
+    </script>
+
+</body>
+</html>
