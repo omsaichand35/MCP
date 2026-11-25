@@ -7,9 +7,13 @@ from mcp.client.stdio import stdio_client, StdioServerParameters
 from mcp.client.session import ClientSession
 
 
+api_key = os.environ.get("NVIDIA_API_KEY")
+if not api_key:
+    raise RuntimeError("Set the NVIDIA_API_KEY environment variable before running this client.")
+
 llm_client = AsyncOpenAI(
     base_url="https://integrate.api.nvidia.com/v1",
-    api_key=os.environ.get("NVIDIA_API_KEY")
+    api_key=api_key
 )
 
 async def main():

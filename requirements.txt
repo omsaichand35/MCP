@@ -1,0 +1,11 @@
+mcp
+fastmcp
+openai
+requests
+streamlit
+pandas
+ollama
+sqlglot
+pyodbc
+numpy
+scikit-learn

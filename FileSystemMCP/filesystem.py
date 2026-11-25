@@ -12,7 +12,9 @@ def safe_path(relative_path) -> Path:
     """
     path = (WORKSPACE / relative_path).resolve()
 
-    if not str(path).startswith(str(WORKSPACE)):
+    try:
+        path.relative_to(WORKSPACE)
+    except ValueError:
         raise ValueError("Access outside workspace is not allowed")
     return path
 
